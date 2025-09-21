@@ -1,0 +1,20 @@
+# Arquivos do Git
+.git
+.gitignore
+
+# Dados de sessão do WhatsApp
+whatsapp_session_data/
+versions/
+
+# Ambientes virtuais e dependências locais
+.venv
+__pycache__/
+*.pyc
+
+# Arquivos de configuração do Docker
+.dockerignore
+docker-compose.yml
+Dockerfile
+
+# Outros
+README.md

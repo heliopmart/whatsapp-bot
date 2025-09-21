@@ -11,17 +11,18 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+import tempfile, shutil
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
         self.driver = None
-        self.sendMensage = True
+        self.sendMensage = False
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
         self.days_to_run = [6, 1, 3]  # Domingo, Terça, Quinta
-        self.hourStartBot = 20
+        self.hourStartBot = 18
         self.hourFinishBot = 23
-        self.alert_start_hour = 20
+        self.alert_start_hour = 18
         self.alert_start_minute = 30
         self.alert_end_hour = 21
         self.alert_end_minute = 0
@@ -179,13 +180,13 @@ class WhatsAppBot:
             if(name == '11:15'):
                 fullList += f"Ida {name} \n"
             else:
-                fullList += f" {i+1}.{self.ZWSP}{name.title()} \n"
+                fullList += f" {i}.{self.ZWSP}{name.title()} \n"
 
         for i, name in enumerate(back_list):
             if(name == '17:30'):
                 fullList += f" \n Volta {name} \n"
             else:
-                fullList += f" {i+1}.{self.ZWSP}{name.title()} \n"
+                fullList += f" {i}.{self.ZWSP}{name.title()} \n"
 
         return fullList
 
@@ -293,7 +294,9 @@ class Whatsapp:
         self.driver = None
         
     def main(self):
+        print("[DEBUG] Iniciando Drivers")
         self.inicializar_driver_stealth()
+        print("[DEBUG] Iniciando o método Whatsapp.main...")
         self.abrir_whatsapp_web()
         if self.abrir_grupo():
             print(f"Grupo '{self.groupName}' aberto com sucesso.")
@@ -304,23 +307,20 @@ class Whatsapp:
     def inicializar_driver_stealth(self):
         try:
             options = webdriver.ChromeOptions()
-            # ? Using 
-            # data_dir = os.path.abspath("./whatsapp_session_data")
-            
 
-            # ? Using Docker
-            data_dir = os.path.abspath("/app/whatsapp_session_data") 
-
-            os.makedirs(data_dir, exist_ok=True)
+            # Perfil: do ENV ou padrão persistente
+            data_dir = os.path.abspath(os.getenv("CHROME_USER_DATA_DIR", "./whatsapp_session_data"))
+            self._prepare_user_data_dir(data_dir)
             options.add_argument(f"--user-data-dir={data_dir}")
             options.add_argument("--profile-directory=Default")
 
-            # --- ARGUMENTOS ESSENCIAIS PARA RODAR NO DOCKER ---
-            options.add_argument("--headless") # Roda o Chrome sem abrir uma janela
-            options.add_argument("--no-sandbox") # Requerido para rodar como root no contêiner
-            options.add_argument("--disable-dev-shm-usage") # Evita problemas de memória compartilhada
-            options.add_argument("--window-size=1920,1080") # Define um tamanho de janela para evitar problemas de layout
-            # ----------------------------------------------------
+            # --- Flags essenciais p/ Docker/CI ---
+            # Headless opcional: troque para "--headless=new" se preferir.
+            options.add_argument("--headless=new")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--window-size=1920,1080")
+            # -------------------------------------
 
             options.add_argument("--log-level=3")
             options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
@@ -329,11 +329,16 @@ class Whatsapp:
             options.add_argument("--no-first-run")
             options.add_argument("--no-default-browser-check")
             options.add_argument("--disable-gpu")
-            options.add_argument("--disable-dev-shm-usage")
+
+            # Evita colisão se houver outro Chrome vivo usando a porta padrão:
+            options.add_argument(f"--remote-debugging-port={9222 + random.randint(0,999)}")
 
             service = ChromeService(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
-            driver.maximize_window()
+            try:
+                driver.maximize_window()
+            except Exception:
+                pass
 
             self.driver = driver
             return driver
@@ -342,11 +347,21 @@ class Whatsapp:
             return None
 
     def abrir_whatsapp_web(self, timeout=90):
+        if self.driver is None:
+            print("Driver não inicializado. Não é possível abrir o WhatsApp Web.")
+            return
+
         self.driver.get("https://web.whatsapp.com/")
         WebDriverWait(self.driver, timeout).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div#app"))
         )
         print("WhatsApp Web carregado.")
+
+        if not self._logged_in():
+            print("[INFO] Aguardando autenticação via QR...")
+            ok = self._ensure_login_with_qr_updates(refresh_each=25, max_wait=300)
+            if not ok:
+                raise RuntimeError("Não foi possível autenticar no WhatsApp a tempo.")
 
     def abrir_grupo(self, timeout=25):
         try:
@@ -364,8 +379,135 @@ class Whatsapp:
         except TimeoutException:
             print(f"Não achei '{self.groupName}' na lateral. Confirme o nome exato (título do span).")
             return False
+
+    def _prepare_user_data_dir(self, data_dir: str):
+        """
+        Garante a criação do diretório de perfil e remove locks que causam
+        'session not created: user data directory is already in use'.
+        """
+        os.makedirs(data_dir, exist_ok=True)
+        for f in ["SingletonLock", "SingletonCookie", "SingletonSocket", "SingletonSharedMemory"]:
+            p = os.path.join(data_dir, f)
+            try:
+                os.remove(p)
+            except FileNotFoundError:
+                pass    
+    
+    def _find_qr_canvas(self, timeout=20):
+        """
+        Retorna o elemento <canvas> do QR do WhatsApp Web.
+        Priorizamos o aria-label que você observou: 'Scan this QR code to link a device!'.
+        Mantemos fallbacks para variantes do site.
+        """
+        CANDIDATES = [
+            (By.CSS_SELECTOR, 'canvas[aria-label="Scan this QR code to link a device!"]'),
+            (By.XPATH, '//canvas[contains(@aria-label,"Scan this QR code")]'),
+            (By.XPATH, '//canvas[contains(@aria-label,"Scan") and contains(@aria-label,"QR")]'),
+            (By.CSS_SELECTOR, 'div[data-testid="qrcode"] canvas'),
+        ]
+        wait = WebDriverWait(self.driver, timeout)
+        for by, sel in CANDIDATES:
+            try:
+                el = wait.until(EC.visibility_of_element_located((by, sel)))
+                return el
+            except Exception:
+                continue
+        return None
+
+    # --- 2) Detectar e recarregar QR expirado ---
+    def _reload_qr_if_needed(self):
+        """
+        Se o QR expirou, o WhatsApp mostra um cartão com ícone de reload e texto 'Click to reload QR code'.
+        Tentamos clicar para gerar um novo QR.
+        """
+        try:
+            # Botão "reload" comum (ícone circular) na área do QR expirado
+            reload_candidates = [
+                (By.XPATH, '//*[contains(text(),"Click to reload QR code")]/ancestor-or-self::*[1]'),
+                (By.XPATH, '//div[@role="button" and .//span[contains(text(),"reload")]]'),
+                (By.CSS_SELECTOR, 'div[aria-label*="reload QR"]'),
+            ]
+            for by, sel in reload_candidates:
+                btns = self.driver.find_elements(by, sel)
+                if btns:
+                    try:
+                        btns[0].click()
+                        return True
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return False
+
+    # --- 3) Salvar o QR atual em arquivo ---
+    def _save_qr(self, path: str) -> bool:
+        """
+        Salva o PNG do canvas do QR em 'path'.
+        Se estiver expirado, tenta recarregar e capturar de novo.
+        """
+        # Primeiro tenta pegar o canvas
+        qr = self._find_qr_canvas(timeout=8)
+        if not qr:
+            # Talvez expirado -> tenta reload e busca de novo
+            if self._reload_qr_if_needed():
+                qr = self._find_qr_canvas(timeout=8)
+            if not qr:
+                return False
+
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(qr.screenshot_as_png)
+            print(f"[INFO] QR salvo em {path}")
+            return True
+        except Exception as e:
+            print(f"[WARN] Falha ao salvar QR: {e}")
+            return False
+
+    # --- 4) Loop de atualização até logar ---
+    def _logged_in(self) -> bool:
+        # Heurística simples: existe caixa de mensagem quando logado
+        try:
+            self.driver.find_element(By.CSS_SELECTOR, 'div[role="textbox"]')
+            return True
+        except Exception:
+            return False
+
+    def _ensure_login_with_qr_updates(self, refresh_each=20, max_wait=300) -> bool:
+        """
+        Atualiza /shared/qr.png periodicamente:
+        - Se expirar, clica no reload e captura de novo.
+        - Para quando detectar login ou quando estourar o tempo.
+        """
+        qr_path = os.getenv("QR_OUTPUT_PATH", "/shared/qr.png")
+        start = time.time()
+        last = 0
+        # Primeira captura imediata
+        self._save_qr(qr_path)
+
+        while time.time() - start < max_wait:
+            if self._logged_in():
+                return True
+            now = time.time()
+            # re-salva a cada 'refresh_each' segundos (o QR expira ~a cada 20–30s)
+            if now - last >= refresh_each:
+                if not self._save_qr(qr_path):
+                    # Se não conseguiu, tenta um force reload e salva de novo
+                    self._reload_qr_if_needed()
+                    self._save_qr(qr_path)
+                last = now
+            time.sleep(1)
+        return self._logged_in()
+
         
 
 if __name__ == "__main__":
-    WhatsAppBot("VAN INTEGRAL 2025", 1).main()
-
+    bot = WhatsAppBot()
+    try:
+        bot.main()
+    except Exception as e:
+        print(f"Uma exceção não tratada ocorreu: {e}")
+    finally:
+        if bot.driver:
+            print("Encerrando o driver do Selenium para garantir um desligamento limpo...")
+            bot.driver.quit()

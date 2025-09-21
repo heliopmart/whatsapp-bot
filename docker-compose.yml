@@ -1,0 +1,16 @@
+services:
+  whatsapp-bot:
+    build: .
+    environment:
+      - TZ=America/Campo_Grande
+      - PYTHONUNBUFFERED=1
+      - CHROME_USER_DATA_DIR=/app/whatsapp_session_data
+      - QR_OUTPUT_PATH=/shared/qr.png
+    volumes:
+      - whatsapp_data:/app/whatsapp_session_data
+      - ./shared:/shared
+    shm_size: "2g"     # recomendo 2g p/ Chrome
+    restart: unless-stopped
+
+volumes:
+  whatsapp_data:
