@@ -475,20 +475,19 @@ class Whatsapp:
 
     def _ensure_login_with_qr_updates(self, refresh_each=20, max_wait=300) -> bool:
         """
-            Atualiza o QR code, priorizando a exibição no terminal para login rápido.
-            Salva o arquivo .png como um fallback.
-            Para quando detectar login ou quando o tempo máximo for atingido.
+        Atualiza o QR code, priorizando a exibição no terminal para login rápido.
+        Salva o arquivo .png como um fallback.
+        Para quando detectar login ou quando o tempo máximo for atingido.
         """
         qr_path = os.getenv("QR_OUTPUT_PATH", "/shared/qr.png")
         start_time = time.time()
-        last_qr_data = None # Armazena o último QR exibido para não repetir
+        last_qr_data = None 
 
         print("[INFO] Aguardando autenticação via QR Code...")
 
         while time.time() - start_time < max_wait:
             if self._logged_in():
                 print("[INFO] Login bem-sucedido!")
-                # Se o arquivo qr.png existe, podemos removê-lo.
                 if os.path.exists(qr_path):
                     try:
                         os.remove(qr_path)
@@ -497,25 +496,27 @@ class Whatsapp:
                 return True
 
             try:
-                # O WhatsApp armazena os dados do QR Code em um atributo 'data-ref' de uma div
                 qr_div = WebDriverWait(self.driver, 5).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-ref]"))
                 )
                 current_qr_data = qr_div.get_attribute("data-ref")
 
-                # Se for um QR novo e válido, exibe no terminal
                 if current_qr_data and current_qr_data != last_qr_data:
                     print("\n[AÇÃO NECESSÁRIA] Escaneie o QR Code abaixo com seu celular:")
-                    qrcode.print_tty(current_qr_data) # A mágica acontece aqui!
+                    
+                    # --- INÍCIO DA CORREÇÃO ---
+                    # Em vez de qrcode.print_tty(current_qr_data), usamos:
+                    qr = qrcode.QRCode()
+                    qr.add_data(current_qr_data)
+                    qr.print_ascii(tty=True) # Este é o método correto
+                    # --- FIM DA CORREÇÃO ---
+
                     print("="*60)
                     last_qr_data = current_qr_data
-
-                    # Como fallback, ainda salvamos a imagem do QR
+                    
                     self._save_qr(qr_path)
 
             except (TimeoutException, NoSuchElementException):
-                # Se não encontrar o QR, talvez a página esteja carregando ou o QR expirou.
-                # A função _save_qr já tem a lógica de tentar recarregar.
                 print("[DEBUG] QR Code não encontrado, tentando recarregar e salvar imagem de fallback...")
                 if self._save_qr(qr_path):
                     print("[INFO] Imagem de fallback qr.png atualizada.")
@@ -524,12 +525,11 @@ class Whatsapp:
                 print(f"[AVISO] Ocorreu um erro ao tentar exibir o QR no terminal: {e}")
                 time.sleep(5)
 
-            time.sleep(1) # Pequena pausa para não sobrecarregar
+            time.sleep(1)
 
         print("[ERRO] Tempo máximo de espera para login via QR Code excedido.")
         return False
-
-        
+            
 
 if __name__ == "__main__":
     bot = WhatsAppBot()
