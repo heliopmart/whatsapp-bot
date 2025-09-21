@@ -508,7 +508,7 @@ class Whatsapp:
                     # Em vez de qrcode.print_tty(current_qr_data), usamos:
                     qr = qrcode.QRCode()
                     qr.add_data(current_qr_data)
-                    qr.print_ascii(tty=True) # Este é o método correto
+                    qr.print_ascii() # Este é o método correto
                     # --- FIM DA CORREÇÃO ---
 
                     print("="*60)
