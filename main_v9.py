@@ -31,7 +31,7 @@ Volta 17:30
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
         self.driver = None
-        self.sendMensage = False
+        self.sendMensage = True
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
         self.days_to_run = [6, 1, 3, 0]  # Domingo, Terça, Quinta
@@ -54,7 +54,7 @@ class WhatsAppBot:
 
 
     def main(self):
-        # self.open_whatsapp_web()
+        self.open_whatsapp_web()
         
         print("Bot em modo de vigilância 24/7...")
 
@@ -90,11 +90,11 @@ class WhatsAppBot:
                 )
 
                 # self.is_group_open()
-                if True:
+                if self.is_group_open():
                     print(f"[{current_time.strftime('%H:%M:%S')}] GRUPO ABERTO! Iniciando operação em velocidade máxima.")
                     
-                    # group_list = self.get_list_from_whatsapp()
-                    group_list = template # Para testes locais
+                    group_list = self.get_list_from_whatsapp()
+                    # group_list = template # Para testes locais
 
                     if not group_list:
                         print(f"[{current_time.strftime('%H:%M:%S')}] Nenhuma lista encontrada. Tentando novamente em breve.")
