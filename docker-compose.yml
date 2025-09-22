@@ -9,7 +9,7 @@ services:
     volumes:
       - whatsapp_data:/app/whatsapp_session_data
       - ./shared:/shared
-    shm_size: "2g"     # recomendo 2g p/ Chrome
+    shm_size: "2g"  # Ainda é bom manter para o Chrome
     restart: unless-stopped
 
 volumes:

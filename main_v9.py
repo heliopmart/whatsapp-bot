@@ -1,5 +1,5 @@
 import os, re, time, random, unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import pyperclip
 from selenium import webdriver
@@ -11,7 +11,22 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-import qrcode # <--- ADICIONE ESTA LINHA
+import qrcode 
+
+template = """ 
+terça-feira 13/09 😁
+
+Ida 11:15
+1. Isabella 
+
+Volta 17:30
+1. Jaqueline
+2. ⁠Antonio
+3. João
+4. ⁠Isabella(unigran)
+5. ⁠Eduarda(unigran)
+6. ⁠Aline (unigram)
+"""
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
@@ -19,8 +34,8 @@ class WhatsAppBot:
         self.sendMensage = False
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
-        self.days_to_run = [6, 1, 3]  # Domingo, Terça, Quinta
-        self.hourStartBot = 18
+        self.days_to_run = [6, 1, 3, 0]  # Domingo, Terça, Quinta
+        self.hourStartBot = 14
         self.hourFinishBot = 23
         self.alert_start_hour = 18
         self.alert_start_minute = 30
@@ -39,7 +54,7 @@ class WhatsAppBot:
 
 
     def main(self):
-        self.open_whatsapp_web()
+        # self.open_whatsapp_web()
         
         print("Bot em modo de vigilância 24/7...")
 
@@ -74,29 +89,43 @@ class WhatsAppBot:
                     (current_time.hour == self.alert_end_hour and current_time.minute < self.alert_end_minute))
                 )
 
-                if self.is_group_open():
+                # self.is_group_open()
+                if True:
                     print(f"[{current_time.strftime('%H:%M:%S')}] GRUPO ABERTO! Iniciando operação em velocidade máxima.")
                     
-                    group_list = self.get_list_from_whatsapp()
+                    # group_list = self.get_list_from_whatsapp()
+                    group_list = template # Para testes locais
 
                     if not group_list:
                         print(f"[{current_time.strftime('%H:%M:%S')}] Nenhuma lista encontrada. Tentando novamente em breve.")
                         time.sleep(15) # Espera um pouco antes de verificar de novo
                         continue # Volta para o início do loop while
 
+                    if not self.is_list_from_today(group_list):
+                        print(f"[{current_time.strftime('%H:%M:%S')}] A lista encontrada não é de hoje. Ignorando e tentando novamente mais tarde.")
+                        time.sleep(180) # Espera 3 minutos antes de verificar de novo
+                        continue
+
                     if self.nameToAdd.lower() in group_list.lower():
                         print(f"[{current_time.strftime('%H:%M:%S')}] Meu nome já está na lista. Ação cancelada para hoje.")
                         self.list_sent_for_today = True
                         continue
 
-                    ida_list, volta_list = self.parse_schedule_robust(group_list)
+                    head_list, ida_list, volta_list = self.parse_schedule_robust(group_list)
                     go_list_with_name, back_list_with_name = self.put_name_in_list(ida_list, volta_list)
-                    reconstruct_list = self.reconstruct_list(back_list_with_name, go_list_with_name)
-                    
+                    reconstruct_list = self.reconstruct_list(back_list_with_name, go_list_with_name, head_list)
+
+                    print(f"[{current_time.strftime('%H:%M:%S')}] Lista reconstruída:\n---\n{reconstruct_list}\n---")
+
                     # Ação imediata, sem pausa
-                    self.send_message_via_clipboard(self.driver, reconstruct_list)
-                    self.list_sent_for_today = True
-                    print(f"[{current_time.strftime('%H:%M:%S')}] Operação concluída. Entrando em modo de espera até amanhã.")
+                    sucess = self.send_message_with_javascript(reconstruct_list)
+                    if(sucess == True):
+                        self.list_sent_for_today = True
+                        print(f"[{current_time.strftime('%H:%M:%S')}] Operação concluída. Entrando em modo de espera até amanhã.")
+                    else:
+                        print(f"[{current_time.strftime('%H:%M:%S')}] Falha ao enviar a lista. Tentando novamente em breve.")
+                        time.sleep(15) # Espera um pouco antes de verificar de novo
+                        continue # Volta para o início do loop while
 
                 else:
                     # Decide a duração da pausa com base no modo de alerta
@@ -152,33 +181,61 @@ class WhatsAppBot:
             # Se nenhum dos candidatos for encontrado, retorna None
             return None
 
-    def send_message_via_clipboard(self, driver, message):
+    def send_message_with_javascript(self, message):
         """
-        Copia a mensagem para o clipboard e a cola no chat do WhatsApp.
+        Executa os dois passos essenciais: encontra o input e adiciona o texto
+        multi-linha da maneira correta (simulando Shift+Enter).
         """
-        # 1. Copia a mensagem formatada para a área de transferência
-        pyperclip.copy(message)
-        
-        # 2. Encontra o campo de digitação do WhatsApp
-        # (O seletor pode variar, este é um exemplo comum)
-        chatbox = self.search_input_text()
-        chatbox.click()
+        try:
+            # Passo 1: Encontrar o input
+            print("[INFO] Passo 1: Procurando a caixa de mensagem...")
+            chatbox = self.search_input_text()
+            if chatbox is None:
+                print("[ERRO] Caixa de mensagem não encontrada.")
+                return False
 
-        # 3. Simula o "Ctrl+V" (ou Command+V no Mac)
-        # Use Keys.COMMAND no lugar de Keys.CONTROL se estiver no macOS
-        chatbox.send_keys(Keys.CONTROL, 'v')
+            print("[INFO] Passo 2: Adicionando texto formatado...")
+            # Passo 2: Adicionar o texto formatado (linha por linha com Shift+Enter)
+            linhas = message.split('\n')
+
+            for i, linha in enumerate(linhas):
+                chatbox.send_keys(linha)
+                # Adiciona a quebra de linha se não for a última linha
+                if i < len(linhas) - 1:
+                    ActionChains(self.driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+            
+            # Ação final: Enviar a mensagem que acabamos de adicionar
+            if self.sendMensage:
+                chatbox.send_keys(Keys.ENTER)
+                print("[SUCESSO] Texto adicionado e mensagem enviada!")
+                return True
+            else:
+                print("[INFO] Texto adicionado. Envio manual aguardando.")
+                return "INFO"
+
+        except Exception as e:
+            print(f"[ERRO] Falha durante a adição de texto ao input: {e}")
+            return False
+
+        except NoSuchElementException:
+            print("[ERRO V2] O botão de envio não foi encontrado. Isso provavelmente significa que o React não reconheceu o texto injetado e o botão continuou desabilitado.")
+            return False
+        except Exception as e:
+            print(f"[ERRO V2] Falha inesperada: {e}")
+            return False
+
+        except NoSuchElementException:
+            print("[ERRO] O botão de envio não foi encontrado após injetar o texto.")
+            return False
+        except Exception as e:
+            print(f"[ERRO] Falha inesperada ao enviar mensagem com JavaScript: {e}")
+            return False
         
-        if(self.sendMensage == True):
-            chatbox.send_keys(Keys.ENTER)
-            print("Mensagem enviada com sucesso!")
-        else:
-            print("Em Aguardo!")
-        
-    def reconstruct_list(self, back_list, go_list):
-        fullList = ''
+    def reconstruct_list(self, back_list, go_list, head_list):
+        fullList = ""
         for i, name in enumerate(go_list):
             if(name == '11:15'):
-                fullList += f"Ida {name} \n"
+                fullList += f"{head_list.strip()}\n\n Ida {name} \n"
             else:
                 fullList += f" {i}.{self.ZWSP}{name.title()} \n"
 
@@ -260,17 +317,19 @@ class WhatsAppBot:
             # Separa o bloco de Ida do resto
             before_volta, after_volta = raw_text.split("Volta", 1)
             # Pega só o que vem depois de "Ida"
-            ida_block = before_volta.split("Ida", 1)[1]
+            go_block_list = before_volta.split("Ida", 1)
+            head_block, ida_block = go_block_list
+
             volta_block = after_volta
         except ValueError:
             # Retorno seguro caso o texto não tenha os marcadores esperados
-            return {'ida': [], 'volta': []}
+            return {'head': '', 'ida': [], 'volta': []}
 
         # Limpa cada bloco de texto de forma independente
         ida_list = self.clean_name_list(ida_block)
         volta_list = self.clean_name_list(volta_block)
     
-        return ida_list, volta_list
+        return head_block, ida_list, volta_list
 
     def clean_name_list(self, block_text):
         """Função interna para limpar um bloco de texto e retornar uma lista de nomes."""
@@ -287,6 +346,50 @@ class WhatsAppBot:
                 cleaned_list.append(name)
                 seen_names.add(name)
         return cleaned_list
+
+    def is_list_from_today(self, message_text: str) -> bool:
+        """
+        Verifica se a lista é para a próxima viagem (prioritariamente amanhã, mas também hoje).
+        Retorna True se a lista for considerada válida, False caso contrário.
+        """
+        today = datetime.now(self.timeZone)
+        tomorrow = today + timedelta(days=1)
+        text_lower = message_text.lower()
+
+        dias_semana = {
+            0: "segunda-feira", 1: "terça-feira", 2: "quarta-feira",
+            3: "quinta-feira", 4: "sexta-feira", 5: "sábado", 6: "domingo"
+        }
+
+        # --- Verificação Principal: Lista para AMANHÃ ---
+        tomorrow_date_str = tomorrow.strftime('%d/%m')
+        if tomorrow_date_str in text_lower:
+            print(f"[VALIDAÇÃO] Lista validada pela data de AMANHÃ: {tomorrow_date_str}")
+            return True
+
+        tomorrow_weekday_str = dias_semana.get(tomorrow.weekday())
+        if tomorrow_weekday_str and tomorrow_weekday_str in text_lower:
+            print(f"[VALIDAÇÃO] Lista validada pelo dia da semana de AMANHÃ: {tomorrow_weekday_str}")
+            return True
+
+        # --- Verificação Secundária: Lista para HOJE (caso postada no mesmo dia) ---
+        today_date_str = today.strftime('%d/%m')
+        if today_date_str in text_lower:
+            print(f"[VALIDAÇÃO] Lista validada pela data de HOJE: {today_date_str}")
+            return True
+
+        today_weekday_str = dias_semana.get(today.weekday())
+        if today_weekday_str and today_weekday_str in text_lower:
+            print(f"[VALIDAÇÃO] Lista validada pelo dia da semana de HOJE: {today_weekday_str}")
+            return True
+
+        # A verificação por "hoje" continua válida para listas postadas no mesmo dia
+        if "hoje" in text_lower:
+            print("[VALIDAÇÃO] Lista validada pela palavra 'hoje'.")
+            return True
+
+        print("[AVISO] A lista encontrada não parece ser para hoje nem para amanhã. Ignorando.")
+        return False
     
 class Whatsapp:
     def __init__ (self, groupName):
@@ -316,7 +419,7 @@ class Whatsapp:
 
             # --- Flags essenciais p/ Docker/CI ---
             # Headless opcional: troque para "--headless=new" se preferir.
-            options.add_argument("--headless=new")
+            # options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--window-size=1920,1080")
