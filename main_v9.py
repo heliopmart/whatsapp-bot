@@ -14,7 +14,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import qrcode 
 
 template = """ 
-terça-feira 13/09 😁
+terça-feira 23/09 😁
 
 Ida 11:15
 1. Isabella 
@@ -34,8 +34,8 @@ class WhatsAppBot:
         self.sendMensage = True
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
-        self.days_to_run = [6, 1, 3, 0]  # Domingo, Terça, Quinta
-        self.hourStartBot = 14
+        self.days_to_run = [6, 1, 3]  # Domingo, Terça, Quinta
+        self.hourStartBot = 18
         self.hourFinishBot = 23
         self.alert_start_hour = 18
         self.alert_start_minute = 30
@@ -311,6 +311,8 @@ class WhatsAppBot:
         Recebe o texto bruto e extrai as listas de Ida e Volta de forma robusta.
         Retorna um dicionário com as duas listas limpas.
         """
+
+        print(f"[DEBUG] Texto bruto recebido para parsing:\n{raw_text}\n---")
         
         # Usar split é mais seguro para separar as seções
         try:
@@ -373,20 +375,21 @@ class WhatsAppBot:
             return True
 
         # --- Verificação Secundária: Lista para HOJE (caso postada no mesmo dia) ---
-        today_date_str = today.strftime('%d/%m')
-        if today_date_str in text_lower:
-            print(f"[VALIDAÇÃO] Lista validada pela data de HOJE: {today_date_str}")
-            return True
+        # Não usamos mais a verificação por data ou dia da semana para hoje,
+        # today_date_str = today.strftime('%d/%m')
+        # if today_date_str in text_lower:
+        #     print(f"[VALIDAÇÃO] Lista validada pela data de HOJE: {today_date_str}")
+        #     return True
 
-        today_weekday_str = dias_semana.get(today.weekday())
-        if today_weekday_str and today_weekday_str in text_lower:
-            print(f"[VALIDAÇÃO] Lista validada pelo dia da semana de HOJE: {today_weekday_str}")
-            return True
+        # today_weekday_str = dias_semana.get(today.weekday())
+        # if today_weekday_str and today_weekday_str in text_lower:
+        #     print(f"[VALIDAÇÃO] Lista validada pelo dia da semana de HOJE: {today_weekday_str}")
+        #     return True
 
-        # A verificação por "hoje" continua válida para listas postadas no mesmo dia
-        if "hoje" in text_lower:
-            print("[VALIDAÇÃO] Lista validada pela palavra 'hoje'.")
-            return True
+        # # A verificação por "hoje" continua válida para listas postadas no mesmo dia
+        # if "hoje" in text_lower:
+        #     print("[VALIDAÇÃO] Lista validada pela palavra 'hoje'.")
+        #     return True
 
         print("[AVISO] A lista encontrada não parece ser para hoje nem para amanhã. Ignorando.")
         return False
@@ -419,7 +422,7 @@ class Whatsapp:
 
             # --- Flags essenciais p/ Docker/CI ---
             # Headless opcional: troque para "--headless=new" se preferir.
-            # options.add_argument("--headless=new")
+            options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--window-size=1920,1080")
