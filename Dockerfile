@@ -37,4 +37,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Dica: aumente a SHM no docker run (ver comando abaixo)
-ENTRYPOINT ["python", "main_v9.py"]
+ENTRYPOINT ["python", "main_v10.py"]

@@ -116,12 +116,15 @@ class WhatsAppBot:
                     reconstruct_list = self.reconstruct_list(back_list_with_name, go_list_with_name, head_list)
 
                     print(f"[{current_time.strftime('%H:%M:%S')}] Lista reconstruída:\n---\n{reconstruct_list}\n---")
+                    start_send_time = time.monotonic()
 
                     # Ação imediata, sem pausa
                     sucess = self.send_message_with_javascript(reconstruct_list)
+                    end_send_time = time.monotonic()
+                    duration = end_send_time - start_send_time
                     if(sucess == True):
                         self.list_sent_for_today = True
-                        print(f"[{current_time.strftime('%H:%M:%S')}] Operação concluída. Entrando em modo de espera até amanhã.")
+                        print(f"[{current_time.strftime('%H:%M:%S')}] Operação concluída em {duration:.2f} segundos. Entrando em modo de espera até amanhã.")
                     else:
                         print(f"[{current_time.strftime('%H:%M:%S')}] Falha ao enviar a lista. Tentando novamente em breve.")
                         time.sleep(15) # Espera um pouco antes de verificar de novo
@@ -183,52 +186,71 @@ class WhatsAppBot:
 
     def send_message_with_javascript(self, message):
         """
-        Executa os dois passos essenciais: encontra o input e adiciona o texto
-        multi-linha da maneira correta (simulando Shift+Enter).
+        Usa uma técnica de clipboard DENTRO DO NAVEGADOR para colar a mensagem.
+        1. Cria um textarea temporário via JS.
+        2. Coloca a mensagem nele.
+        3. Usa JS para copiar o conteúdo (document.execCommand('copy')).
+        4. Cola (Ctrl+V) na caixa de texto do WhatsApp.
+        É a solução mais robusta para Docker + React.
         """
+        print("[INFO] Usando a estratégia de clipboard do navegador para máxima velocidade e compatibilidade.")
         try:
-            # Passo 1: Encontrar o input
-            print("[INFO] Passo 1: Procurando a caixa de mensagem...")
+            # Passo 1: Encontrar a caixa de texto para garantir que estamos no lugar certo.
             chatbox = self.search_input_text()
             if chatbox is None:
-                print("[ERRO] Caixa de mensagem não encontrada.")
+                print("[ERRO] Caixa de mensagem não encontrada. O envio falhou.")
                 return False
 
-            print("[INFO] Passo 2: Adicionando texto formatado...")
-            # Passo 2: Adicionar o texto formatado (linha por linha com Shift+Enter)
-            linhas = message.split('\n')
-
-            for i, linha in enumerate(linhas):
-                chatbox.send_keys(linha)
-                # Adiciona a quebra de linha se não for a última linha
-                if i < len(linhas) - 1:
-                    ActionChains(self.driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+            # Passo 2: O script JS que cria, preenche, copia e remove o textarea auxiliar.
+            # Note o uso de `navigator.clipboard.writeText` como uma alternativa moderna
+            # e `document.execCommand` como fallback para maior compatibilidade.
+            js_copy_script = """
+                async function copyToClipboard(text) {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                    } catch (err) {
+                        // Fallback para ambientes menos seguros ou navegadores mais antigos
+                        const textArea = document.createElement('textarea');
+                        textArea.value = text;
+                        textArea.style.position = 'fixed'; // Evita rolagem
+                        textArea.style.opacity = 0;
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try {
+                            document.execCommand('copy');
+                        } catch (e) {
+                            console.error('Fallback de cópia falhou', e);
+                        }
+                        document.body.removeChild(textArea);
+                    }
+                }
+                // A mensagem é passada como 'arguments[0]'
+                return copyToClipboard(arguments[0]);
+            """
             
-            # Ação final: Enviar a mensagem que acabamos de adicionar
+            # Passo 3: Executar o script de cópia.
+            self.driver.execute_script(js_copy_script, message)
+            
+            # Passo 4: Focar na caixa de texto e colar.
+            chatbox.click() # Garante que o foco está no lugar certo
+            time.sleep(0.1)
+            
+            actions = ActionChains(self.driver)
+            actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
+            
+            # Passo 5: Enviar a mensagem
             if self.sendMensage:
+                time.sleep(0.5) # Pausa para o React processar o paste
                 chatbox.send_keys(Keys.ENTER)
-                print("[SUCESSO] Texto adicionado e mensagem enviada!")
-                return True
+                print("[SUCESSO] Mensagem colada via clipboard do navegador e enviada!")
             else:
-                print("[INFO] Texto adicionado. Envio manual aguardando.")
-                return "INFO"
+                print("[INFO] Texto colado via clipboard do navegador. Aguardando envio manual.")
+                
+            return True
 
         except Exception as e:
-            print(f"[ERRO] Falha durante a adição de texto ao input: {e}")
-            return False
-
-        except NoSuchElementException:
-            print("[ERRO V2] O botão de envio não foi encontrado. Isso provavelmente significa que o React não reconheceu o texto injetado e o botão continuou desabilitado.")
-            return False
-        except Exception as e:
-            print(f"[ERRO V2] Falha inesperada: {e}")
-            return False
-
-        except NoSuchElementException:
-            print("[ERRO] O botão de envio não foi encontrado após injetar o texto.")
-            return False
-        except Exception as e:
-            print(f"[ERRO] Falha inesperada ao enviar mensagem com JavaScript: {e}")
+            print(f"[ERRO] Ocorreu uma falha durante a estratégia de clipboard do navegador: {e}")
             return False
         
     def reconstruct_list(self, back_list, go_list, head_list):
@@ -638,6 +660,7 @@ class Whatsapp:
             
 
 if __name__ == "__main__":
+    # "VAN INTEGRAL 2025"
     bot = WhatsAppBot()
     try:
         bot.main()
