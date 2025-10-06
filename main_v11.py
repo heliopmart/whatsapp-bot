@@ -30,13 +30,13 @@ Volta 17:30
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
-        self.debugging = False
+        self.debugging = True
         self.driver = None
         self.sendMensage = True
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
-        self.days_to_run = self.debugging if [1,2,3,4,5,6] else [6, 1, 3]  # Domingo, Terça, Quinta
-        self.hourStartBot = self.debugging if 1 else 18
+        self.days_to_run = [0,1, 2, 3, 4, 5, 6] if self.debugging else [6, 1, 3]
+        self.hourStartBot = 1 if self.debugging else 18
         self.hourFinishBot = 23
         self.alert_start_hour = 18
         self.alert_start_minute = 30
@@ -69,6 +69,7 @@ class WhatsAppBot:
                     self.list_sent_for_today = False
                     self.last_check_date = current_date
                     print(f"[{current_time.strftime('%H:%M:%S')}] Novo dia. Bot pronto para a lista de hoje.")
+                    print(self.hourStartBot, self.hourFinishBot, day_of_week)
 
                 is_in_time_window = self.hourStartBot <= current_time.hour < self.hourFinishBot
                 is_correct_day = day_of_week in self.days_to_run
@@ -185,99 +186,30 @@ class WhatsAppBot:
             # Se nenhum dos candidatos for encontrado, retorna None
             return None
 
-    def send_message_directly(self, message):
-        """
-        Versão de diagnóstico: Injeta o texto e, EM CASO DE FALHA, 
-        captura e imprime os logs do console do navegador.
-        """
-        print("[INFO] Usando estratégia de injeção direta com busca de botão robusta (MODO DIAGNÓSTICO).")
+    def send_message_with_javascript(self, message):
         try:
-            js_script = """
-                const message = arguments[0];
-                const done = arguments[1];
+            box = self.search_input_text()
+            if not box:
+                print("[ERRO] Caixa não encontrada")
+                return False
 
-                const chatbox = document.querySelector('div[contenteditable="true"][data-tab="10"]');
-                if (!chatbox) {
-                    return done({success: false, error: 'Chatbox not found'});
-                }
+            # foco
+            box.click()
 
-                chatbox.focus();
-                chatbox.innerHTML = message.replace(/\\n/g, '<br>');
-                chatbox.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-
-                let attempts = 0;
-                const maxAttempts = 12; 
-                const buttonSelectors = [
-                    'button[data-testid="compose-btn-send"]',
-                    'span[data-icon="send"]',
-                    'button[aria-label="Send"]',
-                    'button[aria-label="Enviar"]' // Adicionado seletor em português
-                ];
-
-                const findAndClickButton = setInterval(() => {
-                    attempts++;
-                    let buttonFound = null;
-                    for (const selector of buttonSelectors) {
-                        const element = document.querySelector(selector);
-                        if (element) {
-                            buttonFound = element;
-                            break;
-                        }
-                    }
-
-                    if (buttonFound) {
-                        clearInterval(findAndClickButton);
-                        const clickableButton = buttonFound.tagName === 'BUTTON' ? buttonFound : buttonFound.closest('button');
-                        if (clickableButton) {
-                            clickableButton.click();
-                            done({success: true});
-                        } else {
-                            done({success: false, error: 'Clickable button wrapper not found'});
-                        }
-                    } else if (attempts >= maxAttempts) {
-                        clearInterval(findAndClickButton);
-                        console.error('Botão de enviar não encontrado após várias tentativas!');
-                        done({success: false, error: 'Send button not found after polling'});
-                    }
-                }, 250);
-            """
-
-            self.driver.set_script_timeout(15)
+            # INSERE TUDO DE UMA VEZ (inclui \n para quebras)
+            self.driver.execute_cdp_cmd("Input.insertText", {"text": message})
 
             if self.sendMensage:
-                result = self.driver.execute_async_script(js_script, message)
-                
-                if result and result.get('success'):
-                    print("[SUCESSO] Mensagem injetada e enviada com sucesso.")
-                    return True
-                else:
-                    error_msg = result.get('error') if result else 'Unknown JS error'
-                    print(f"[ERRO] O script JavaScript de injeção direta falhou: {error_msg}")
-
-                    # --- INÍCIO DA CAPTURA DE LOGS ---
-                    print("\n[DEBUG] CAPTURANDO LOGS DO CONSOLE DO NAVEGADOR APÓS FALHA:")
-                    try:
-                        browser_logs = self.driver.get_log('browser')
-                        if not browser_logs:
-                            print("[DEBUG] Nenhum log encontrado no console do navegador.")
-                        for entry in browser_logs:
-                            # Imprime o log formatado
-                            print(f"[CONSOLE] {entry['level']} - {entry['message']}")
-                    except Exception as log_e:
-                        print(f"[DEBUG] Erro ao tentar capturar logs do navegador: {log_e}")
-                    print("[DEBUG] FIM DOS LOGS DO CONSOLE\n")
-                    # --- FIM DA CAPTURA DE LOGS ---
-                    
-                    return False
-            else:
-                # Lógica para não enviar a mensagem (não precisa de captura de log)
-                js_paste_only = "..." # (seu código anterior aqui)
-                self.driver.execute_script(js_paste_only, message)
-                print("[INFO] Texto injetado via JS. Envio manual necessário.")
-                return True
-
+                # Enter para enviar
+                self.driver.execute_cdp_cmd("Input.dispatchKeyEvent", {
+                    "type": "keyDown", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13
+                })
+                self.driver.execute_cdp_cmd("Input.dispatchKeyEvent", {
+                    "type": "keyUp", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13
+                })
+            return True
         except Exception as e:
-            print(f"[ERRO] Falha crítica na execução do script de injeção: {e}")
+            print(f"[ERRO] {e}")
             return False
         
     def reconstruct_list(self, back_list, go_list, head_list):
@@ -475,7 +407,8 @@ class Whatsapp:
 
             # --- Flags essenciais p/ Docker/CI ---
             # Headless opcional: troque para "--headless=new" se preferir.
-            #options.add_argument("--headless=new")
+            options.add_argument("--headless=new")            
+            
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--window-size=1920,1080")
