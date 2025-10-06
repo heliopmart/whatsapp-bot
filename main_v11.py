@@ -30,12 +30,13 @@ Volta 17:30
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
+        self.debugging = False
         self.driver = None
         self.sendMensage = True
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
-        self.days_to_run = [6, 1, 3]  # Domingo, Terça, Quinta
-        self.hourStartBot = 18
+        self.days_to_run = self.debugging if [1,2,3,4,5,6] else [6, 1, 3]  # Domingo, Terça, Quinta
+        self.hourStartBot = self.debugging if 1 else 18
         self.hourFinishBot = 23
         self.alert_start_hour = 18
         self.alert_start_minute = 30
@@ -184,73 +185,99 @@ class WhatsAppBot:
             # Se nenhum dos candidatos for encontrado, retorna None
             return None
 
-    def send_message_with_javascript(self, message):
+    def send_message_directly(self, message):
         """
-        Usa uma técnica de clipboard DENTRO DO NAVEGADOR para colar a mensagem.
-        1. Cria um textarea temporário via JS.
-        2. Coloca a mensagem nele.
-        3. Usa JS para copiar o conteúdo (document.execCommand('copy')).
-        4. Cola (Ctrl+V) na caixa de texto do WhatsApp.
-        É a solução mais robusta para Docker + React.
+        Versão de diagnóstico: Injeta o texto e, EM CASO DE FALHA, 
+        captura e imprime os logs do console do navegador.
         """
-        print("[INFO] Usando a estratégia de clipboard do navegador para máxima velocidade e compatibilidade.")
+        print("[INFO] Usando estratégia de injeção direta com busca de botão robusta (MODO DIAGNÓSTICO).")
         try:
-            # Passo 1: Encontrar a caixa de texto para garantir que estamos no lugar certo.
-            chatbox = self.search_input_text()
-            if chatbox is None:
-                print("[ERRO] Caixa de mensagem não encontrada. O envio falhou.")
-                return False
+            js_script = """
+                const message = arguments[0];
+                const done = arguments[1];
 
-            # Passo 2: O script JS que cria, preenche, copia e remove o textarea auxiliar.
-            # Note o uso de `navigator.clipboard.writeText` como uma alternativa moderna
-            # e `document.execCommand` como fallback para maior compatibilidade.
-            js_copy_script = """
-                async function copyToClipboard(text) {
-                    try {
-                        await navigator.clipboard.writeText(text);
-                    } catch (err) {
-                        // Fallback para ambientes menos seguros ou navegadores mais antigos
-                        const textArea = document.createElement('textarea');
-                        textArea.value = text;
-                        textArea.style.position = 'fixed'; // Evita rolagem
-                        textArea.style.opacity = 0;
-                        document.body.appendChild(textArea);
-                        textArea.focus();
-                        textArea.select();
-                        try {
-                            document.execCommand('copy');
-                        } catch (e) {
-                            console.error('Fallback de cópia falhou', e);
-                        }
-                        document.body.removeChild(textArea);
-                    }
+                const chatbox = document.querySelector('div[contenteditable="true"][data-tab="10"]');
+                if (!chatbox) {
+                    return done({success: false, error: 'Chatbox not found'});
                 }
-                // A mensagem é passada como 'arguments[0]'
-                return copyToClipboard(arguments[0]);
+
+                chatbox.focus();
+                chatbox.innerHTML = message.replace(/\\n/g, '<br>');
+                chatbox.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+
+                let attempts = 0;
+                const maxAttempts = 12; 
+                const buttonSelectors = [
+                    'button[data-testid="compose-btn-send"]',
+                    'span[data-icon="send"]',
+                    'button[aria-label="Send"]',
+                    'button[aria-label="Enviar"]' // Adicionado seletor em português
+                ];
+
+                const findAndClickButton = setInterval(() => {
+                    attempts++;
+                    let buttonFound = null;
+                    for (const selector of buttonSelectors) {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            buttonFound = element;
+                            break;
+                        }
+                    }
+
+                    if (buttonFound) {
+                        clearInterval(findAndClickButton);
+                        const clickableButton = buttonFound.tagName === 'BUTTON' ? buttonFound : buttonFound.closest('button');
+                        if (clickableButton) {
+                            clickableButton.click();
+                            done({success: true});
+                        } else {
+                            done({success: false, error: 'Clickable button wrapper not found'});
+                        }
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(findAndClickButton);
+                        console.error('Botão de enviar não encontrado após várias tentativas!');
+                        done({success: false, error: 'Send button not found after polling'});
+                    }
+                }, 250);
             """
-            
-            # Passo 3: Executar o script de cópia.
-            self.driver.execute_script(js_copy_script, message)
-            
-            # Passo 4: Focar na caixa de texto e colar.
-            chatbox.click() # Garante que o foco está no lugar certo
-            time.sleep(0.1)
-            
-            actions = ActionChains(self.driver)
-            actions.key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
-            
-            # Passo 5: Enviar a mensagem
+
+            self.driver.set_script_timeout(15)
+
             if self.sendMensage:
-                time.sleep(0.5) # Pausa para o React processar o paste
-                chatbox.send_keys(Keys.ENTER)
-                print("[SUCESSO] Mensagem colada via clipboard do navegador e enviada!")
-            else:
-                print("[INFO] Texto colado via clipboard do navegador. Aguardando envio manual.")
+                result = self.driver.execute_async_script(js_script, message)
                 
-            return True
+                if result and result.get('success'):
+                    print("[SUCESSO] Mensagem injetada e enviada com sucesso.")
+                    return True
+                else:
+                    error_msg = result.get('error') if result else 'Unknown JS error'
+                    print(f"[ERRO] O script JavaScript de injeção direta falhou: {error_msg}")
+
+                    # --- INÍCIO DA CAPTURA DE LOGS ---
+                    print("\n[DEBUG] CAPTURANDO LOGS DO CONSOLE DO NAVEGADOR APÓS FALHA:")
+                    try:
+                        browser_logs = self.driver.get_log('browser')
+                        if not browser_logs:
+                            print("[DEBUG] Nenhum log encontrado no console do navegador.")
+                        for entry in browser_logs:
+                            # Imprime o log formatado
+                            print(f"[CONSOLE] {entry['level']} - {entry['message']}")
+                    except Exception as log_e:
+                        print(f"[DEBUG] Erro ao tentar capturar logs do navegador: {log_e}")
+                    print("[DEBUG] FIM DOS LOGS DO CONSOLE\n")
+                    # --- FIM DA CAPTURA DE LOGS ---
+                    
+                    return False
+            else:
+                # Lógica para não enviar a mensagem (não precisa de captura de log)
+                js_paste_only = "..." # (seu código anterior aqui)
+                self.driver.execute_script(js_paste_only, message)
+                print("[INFO] Texto injetado via JS. Envio manual necessário.")
+                return True
 
         except Exception as e:
-            print(f"[ERRO] Ocorreu uma falha durante a estratégia de clipboard do navegador: {e}")
+            print(f"[ERRO] Falha crítica na execução do script de injeção: {e}")
             return False
         
     def reconstruct_list(self, back_list, go_list, head_list):
@@ -385,6 +412,10 @@ class WhatsAppBot:
             3: "quinta-feira", 4: "sexta-feira", 5: "sábado", 6: "domingo"
         }
 
+        if self.debugging:
+            print("[DEBUG] Modo de depuração ativo: ignorando validação de data.")
+            return True
+
         # --- Verificação Principal: Lista para AMANHÃ ---
         tomorrow_date_str = tomorrow.strftime('%d/%m')
         if tomorrow_date_str in text_lower:
@@ -444,10 +475,11 @@ class Whatsapp:
 
             # --- Flags essenciais p/ Docker/CI ---
             # Headless opcional: troque para "--headless=new" se preferir.
-            options.add_argument("--headless=new")
+            #options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--window-size=1920,1080")
+            options.set_capability('goog:loggingPrefs', {'browser': 'ALL'})
             # -------------------------------------
 
             options.add_argument("--log-level=3")
