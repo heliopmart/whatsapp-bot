@@ -30,7 +30,7 @@ Volta 17:30
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
-        self.debugging = False
+        self.debugging = True
         self.driver = None
         self.sendMensage = True
 
@@ -42,6 +42,8 @@ class WhatsAppBot:
         self.alert_start_minute = 30
         self.alert_end_hour = 21
         self.alert_end_minute = 0
+
+        self.inputText = None
 
         self.ZWSP = "\u200b"
 
@@ -95,7 +97,16 @@ class WhatsAppBot:
                 if self.is_group_open():
                     print(f"[{current_time.strftime('%H:%M:%S')}] GRUPO ABERTO! Iniciando operação em velocidade máxima.")
                     
+                    
                     group_list = self.get_list_from_whatsapp()
+                    if not group_list:
+                        print(f"[{current_time.strftime('%H:%M:%S')}] Erro crítico: Grupo aberto, mas caixa de texto inacessível. Tentando novamente...")
+                        time.sleep(1) # Pausa mínima para a UI assentar
+                        continue
+
+                    print(f"[{current_time.strftime('%H:%M:%S')}] Caixa de texto 'armada'. Processando a lista...")
+
+                    self.inputText = self.search_input_text(1)
                     # group_list = template # Para testes locais
 
                     if not group_list:
@@ -165,11 +176,12 @@ class WhatsAppBot:
             # Se estourar o tempo, a caixa não existe, então o grupo está fechado.
             return False
 
-    def search_input_text(self, timeout=6):
+    def search_input_text(self, timeout=2):
         """
         Busca a caixa de texto usando um único XPath combinado para máxima velocidade.
         """
-        # Juntamos todos os candidatos em uma única string com o operador '|'
+        
+        # TODO: Verificar qual desses é o correto
         combined_xpath = (
             "//div[@title='Digite uma mensagem'] | "
             "//div[@contenteditable='true' and @data-tab='10'] | "
@@ -179,7 +191,7 @@ class WhatsAppBot:
         try:
             # Agora fazemos uma única busca que espera no máximo `timeout` segundos
             el = WebDriverWait(self.driver, timeout).until(
-                EC.element_to_be_clickable((By.XPATH, combined_xpath))
+                EC.element_to_be_clickable((By.XPATH, "//footer//div[@contenteditable='true']"))
             )
             return el
         except TimeoutException:
@@ -188,7 +200,7 @@ class WhatsAppBot:
 
     def send_message_with_javascript(self, message):
         try:
-            box = self.search_input_text()
+            box = self.inputText if self.inputText else self.search_input_text()
             if not box:
                 print("[ERRO] Caixa não encontrada")
                 return False
@@ -407,7 +419,7 @@ class Whatsapp:
 
             # --- Flags essenciais p/ Docker/CI ---
             # Headless opcional: troque para "--headless=new" se preferir.
-            options.add_argument("--headless=new")            
+            # options.add_argument("--headless=new")            
             
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -626,7 +638,7 @@ class Whatsapp:
 
 if __name__ == "__main__":
     # "VAN INTEGRAL 2025"
-    bot = WhatsAppBot("VAN INTEGRAL 2025")
+    bot = WhatsAppBot()
     try:
         bot.main()
     except Exception as e:
