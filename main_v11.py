@@ -30,13 +30,14 @@ Volta 17:30
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
-        self.debugging = False
+        self.debugging = True
         self.driver = None
         self.sendMensage = True
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
         self.days_to_run = [0,1, 2, 3, 4, 5, 6] if self.debugging else [6, 1, 3]
         self.hourStartBot = 1 if self.debugging else 19
+        self.minuteStartBot = 0 if self.debugging else 30
         self.hourFinishBot = 23
         self.alert_start_hour = 20
         self.alert_start_minute = 00
@@ -73,7 +74,7 @@ class WhatsAppBot:
                     print(f"[{current_time.strftime('%H:%M:%S')}] Novo dia. Bot pronto para a lista de hoje.")
                     print(self.hourStartBot, self.hourFinishBot, day_of_week)
 
-                is_in_time_window = self.hourStartBot <= current_time.hour < self.hourFinishBot
+                is_in_time_window = self.hourStartBot <= current_time.hour < self.hourFinishBot and current_time.minute >= self.minuteStartBot
                 is_correct_day = day_of_week in self.days_to_run
 
                 if self.list_sent_for_today or not is_in_time_window or not is_correct_day:
@@ -621,7 +622,7 @@ class Whatsapp:
 
 if __name__ == "__main__":
     # "VAN INTEGRAL 2025"
-    bot = WhatsAppBot("VAN INTEGRAL 2025")
+    bot = WhatsAppBot()
     try:
         bot.main()
     except Exception as e:
