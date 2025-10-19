@@ -30,7 +30,7 @@ Volta 17:30
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
-        self.debugging = True
+        self.debugging = False
         self.driver = None
         self.sendMensage = True
 
@@ -622,7 +622,7 @@ class Whatsapp:
 
 if __name__ == "__main__":
     # "VAN INTEGRAL 2025"
-    bot = WhatsAppBot()
+    bot = WhatsAppBot("VAN INTEGRAL 2025")
     try:
         bot.main()
     except Exception as e:
