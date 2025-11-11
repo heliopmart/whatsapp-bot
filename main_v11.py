@@ -28,42 +28,53 @@ Volta 17:30
 6. ⁠Aline (unigram)
 """
 
+# ! TODO: ENVIAR PARA O GITHUB E SUBIR NO SERVIDOR
+
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
-        self.debugging = False
+        self.debugging = True
         self.driver = None
         self.sendMensage = True
 
         self.timeZone = ZoneInfo("America/Campo_Grande")
         self.days_to_run = [0,1, 2, 3, 4, 5, 6] if self.debugging else [6, 1, 3]
-        self.hourStartBot = 1 if self.debugging else 19
-        self.minuteStartBot = 0 if self.debugging else 30
+        self.hourStartBot = 1 if self.debugging else 20
+        self.minuteStartBot = 0 if self.debugging else 00
         self.hourFinishBot = 23
         self.alert_start_hour = 20
         self.alert_start_minute = 00
-        self.alert_end_hour = 21
+        self.alert_end_hour = 22
         self.alert_end_minute = 0
 
         self.inputText = None
 
         self.ZWSP = "\u200b"
 
-        self.groupName = groupName # Lembre de usar seu grupo de teste
+        self.groupName = 'Bot Test' if self.debugging else groupName
         self.nameToAdd = 'Helio'
         # 0 -> Apenas Volta e 1 -> Ida e Volta
         self.whatList = whatList
 
         self.list_sent_for_today = False
         self.last_check_date = None
-
+        
+        # Class Whatsapp
+        self.whatsapp = None
+        self.group_whatsapp_is_open = False
 
     def main(self):
         self.open_whatsapp_web()
+        self.group_whatsapp_is_open = True if self.whatsapp.open_grup_whatsapp_web() else False
         
         print("Bot em modo de vigilância 24/7...")
 
         while True:
             try:
+                if(not self.group_whatsapp_is_open):
+                    self.group_whatsapp_is_open = True if self.whatsapp.open_grup_whatsapp_web() else False
+                    time.sleep(50)
+                    continue
+
                 current_time = datetime.now(self.timeZone)
                 current_date = current_time.date()
                 day_of_week = current_time.weekday() # Pega o dia da semana atual
@@ -157,9 +168,11 @@ class WhatsAppBot:
 
             except WebDriverException:
                 print("Erro crítico com o WebDriver (ex: navegador fechou). Reiniciando...")
+                self.group_whatsapp_is_open = False
                 self.open_whatsapp_web()
             except Exception as e:
                 print(f"Ocorreu um erro inesperado no loop principal: {e}")
+                self.group_whatsapp_is_open = False
                 time.sleep(60)
 
     def is_group_open(self):
@@ -252,7 +265,13 @@ class WhatsAppBot:
 
     def open_whatsapp_web(self):
         whatsapp = Whatsapp(self.groupName)
-        self.driver = whatsapp.main()
+        driver = whatsapp.main()
+
+        self.driver = driver
+        self.whatsapp = whatsapp
+
+        # if self.driver is None:
+        #     raise RuntimeError("Falha crítica: O grupo não foi encontrado. Reiniciando o processo...")
 
     def is_message_a_valid_list(self, message_text):
         """
@@ -385,11 +404,15 @@ class Whatsapp:
         self.inicializar_driver_stealth()
         print("[DEBUG] Iniciando o método Whatsapp.main...")
         self.abrir_whatsapp_web()
+        return self.driver 
+    
+    def open_grup_whatsapp_web (self):
         if self.abrir_grupo():
             print(f"Grupo '{self.groupName}' aberto com sucesso.")
             return self.driver
         else:
             print(f"Falha ao abrir o grupo '{self.groupName}'.")
+            return False
 
     def inicializar_driver_stealth(self):
         try:
@@ -402,7 +425,7 @@ class Whatsapp:
             options.add_argument("--profile-directory=Default")
 
             # --- Flags essenciais p/ Docker/CI ---
-            # Headless opcional: troque para "--headless=new" se preferir.
+            #! Headless opcional: troque para "--headless=new" se preferir.
             options.add_argument("--headless=new")            
             
             options.add_argument("--no-sandbox")
