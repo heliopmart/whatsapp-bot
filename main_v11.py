@@ -32,7 +32,7 @@ Volta 17:30
 
 class WhatsAppBot:
     def __init__(self, groupName='Bot Test', whatList=1):
-        self.debugging = True
+        self.debugging = False
         self.driver = None
         self.sendMensage = True
 
@@ -108,6 +108,7 @@ class WhatsAppBot:
                 # self.is_group_open()
                 if self.is_group_open():
                     print(f"[{current_time.strftime('%H:%M:%S')}] GRUPO ABERTO! Iniciando operação em velocidade máxima.")
+                    self.whatsapp._scroll_to_end()
                     
                     
                     group_list = self.get_list_from_whatsapp()
@@ -490,6 +491,24 @@ class Whatsapp:
             return True
         except TimeoutException:
             print(f"Não achei '{self.groupName}' na lateral. Confirme o nome exato (título do span).")
+            return False
+
+    def _scroll_to_end(self):
+        """Rola para baixo para garantir que a última mensagem seja carregada/visível."""
+        try:
+            # Tenta pegar o elemento que contém o painel principal de mensagens
+            main_chat_panel_xpath = '//div[@role="log"]' 
+            chat_panel = WebDriverWait(self.driver, 3).until(
+                EC.presence_of_element_located((By.XPATH, main_chat_panel_xpath))
+            )
+            
+            # Executa JavaScript para rolar até o final
+            self.driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", chat_panel)
+            print("[DEBUG] Rolagem forçada para o fim da conversa.")
+            time.sleep(1) # Pequena pausa para o WhatsApp Web renderizar
+            return True
+        except Exception as e:
+            print(f"[AVISO] Falha ao rolar para o final: {e}")
             return False
 
     def _prepare_user_data_dir(self, data_dir: str):
